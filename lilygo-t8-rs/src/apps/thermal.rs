@@ -11,9 +11,9 @@ use mlx9064x::{FrameRate, Mlx90640Driver};
 
 const W: i32 = 135;
 const H: i32 = 240;
-const IMG_W: i32 = 135;
-const IMG_H: i32 = 180;
-const Y_OFF: i32 = 0;
+const IMG_W: i32 = 120;
+const IMG_H: i32 = 160;
+const X_OFF: i32 = (W - IMG_W) / 2;
 const SENSOR_W: usize = 32;
 const SENSOR_H: usize = 24;
 
@@ -43,27 +43,6 @@ fn make_ironbow() -> Colormap {
             (255, 255, v)
         };
         map[idx] = Color::new(r, g, b);
-    }
-    map
-}
-
-fn make_lava() -> Colormap {
-    let mut map = [Color::BLACK; 256];
-    for i in 0u8..=255 {
-        let (r, g, b) = if i < 64 {
-            let v = (i as u32 * 4).min(255) as u8;
-            (v, 0, 0)
-        } else if i < 128 {
-            let v = ((i - 64) as u32 * 4).min(255) as u8;
-            (255, v / 2, 0)
-        } else if i < 192 {
-            let v = ((i - 128) as u32 * 4).min(255) as u8;
-            (255, 128u8.saturating_add(v / 2), 0)
-        } else {
-            let v = ((i - 192) as u32 * 4).min(255) as u8;
-            (255, 255, v)
-        };
-        map[i as usize] = Color::new(r, g, b);
     }
     map
 }
@@ -183,13 +162,13 @@ where
 
     backlight.set_brightness(*backlight_level);
 
-    let colormaps: [Colormap; 2] = [make_ironbow(), make_lava()];
-    let mut cmap_idx: usize = 0;
+    let colormap = make_ironbow();
 
     let mut temps = [0.0f32; SENSOR_W * SENSOR_H];
     let mut err_count: u16 = 0;
 
-    let font_b = MonoTextStyle::new(&FONT_6X10, Color::BLACK);
+    let font_w = MonoTextStyle::new(&FONT_6X10, Color::WHITE);
+    let mut row_buf = [Color::BLACK; W as usize];
 
     loop {
         match camera.generate_image_if_ready(&mut temps) {
@@ -198,25 +177,26 @@ where
                     (if t < mn { t } else { mn }, if t > mx { t } else { mx })
                 });
 
-                for col in 0..SENSOR_W {
-                    let y_start = Y_OFF + ((SENSOR_W - 1 - col) as i32 * IMG_H) / SENSOR_W as i32;
-                    let y_end = Y_OFF + ((SENSOR_W - col) as i32 * IMG_H) / SENSOR_W as i32;
-                    for row in 0..SENSOR_H {
-                        let temp = temps[row * SENSOR_W + col];
-                        let idx = temp_to_idx(temp, min_t, max_t);
-                        let color = colormaps[cmap_idx][idx as usize];
-
-                        let x_start = (row as i32 * IMG_W) / SENSOR_H as i32;
-                        let x_end = ((row + 1) as i32 * IMG_W) / SENSOR_H as i32;
-
-                        Rectangle::new(
-                            Point::new(x_start, y_start),
-                            Size::new((x_end - x_start) as u32, (y_end - y_start) as u32),
-                        )
-                        .into_styled(PrimitiveStyleBuilder::new().fill_color(color).build())
-                        .draw(display)
-                        .unwrap();
+                let mut indices = [[0u8; SENSOR_W]; SENSOR_H];
+                for row in 0..SENSOR_H {
+                    for col in 0..SENSOR_W {
+                        indices[row][col] =
+                            temp_to_idx(temps[row * SENSOR_W + col], min_t, max_t);
                     }
+                }
+
+                for y in 0..IMG_H {
+                    let sensor_col = SENSOR_W - 1 - y as usize / 5;
+                    for x in 0..IMG_W {
+                        let sensor_row = x as usize / 5;
+                        row_buf[(X_OFF + x) as usize] =
+                            colormap[indices[sensor_row][sensor_col] as usize];
+                    }
+                    let area = Rectangle::new(
+                        Point::new(0, y),
+                        Size::new(W as u32, 1),
+                    );
+                    display.fill_contiguous(&area, row_buf.iter().copied()).unwrap();
                 }
 
                 Rectangle::new(
@@ -240,7 +220,7 @@ where
                 let amb = camera.ambient_temperature().unwrap_or(0.0);
                 let (amb_int, amb_frac) = f32_to_int_frac(amb);
                 let mut buf2 = FmtBuf::new();
-                let map_name = if cmap_idx == 0 { "iron" } else { "lava" };
+                let map_name = "iron";
                 let _ = write!(
                     buf2,
                     "amb:{}.{}C  {}  e:{}",
@@ -249,19 +229,10 @@ where
 
                 let rect_y = H - 28;
 
-                Rectangle::new(Point::new(0, rect_y), Size::new(W as u32, 29))
-                    .into_styled(
-                        PrimitiveStyleBuilder::new()
-                            .fill_color(Color::WHITE)
-                            .build(),
-                    )
-                    .draw(display)
-                    .unwrap();
-
                 let _ = Text::with_alignment(
                     buf1.as_str(),
                     Point::new(W / 2, rect_y + 10),
-                    font_b,
+                    font_w,
                     Alignment::Center,
                 )
                 .draw(display);
@@ -269,7 +240,7 @@ where
                 let _ = Text::with_alignment(
                     buf2.as_str(),
                     Point::new(W / 2, rect_y + 22),
-                    font_b,
+                    font_w,
                     Alignment::Center,
                 )
                 .draw(display);
@@ -284,11 +255,8 @@ where
         }
 
         match wait_for_event(button) {
-            ButtonEvent::ShortPress => {
-                cmap_idx = (cmap_idx + 1) % colormaps.len();
-            }
             ButtonEvent::LongPress => return super::AppKind::Menu,
-            ButtonEvent::None => {}
+            _ => {}
         }
     }
 }
