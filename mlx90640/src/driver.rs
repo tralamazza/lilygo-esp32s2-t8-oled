@@ -1,4 +1,3 @@
-use core::marker::PhantomData;
 use embedded_hal::i2c::I2c;
 
 use crate::bad_pixels;
@@ -8,33 +7,41 @@ use crate::types::{Error, FrameRate};
 
 const ADDR: u8 = 0x33;
 const INIT_STATUS: u16 = 0x0030;
+const MAX_WAIT_ITERATIONS: u32 = 2000;
 
 pub struct Mlx90640<I2C> {
     i2c: I2C,
     params: CalibrationParams,
     ambient_temp: f32,
     emissivity: f32,
-    _marker: PhantomData<I2C>,
+    tr: f32,
 }
 
 impl<I2C: I2c> Mlx90640<I2C> {
-    pub fn new(mut i2c: I2C) -> Result<Self, Error<I2C>> {
+    pub fn new(i2c: I2C) -> Result<Self, Error<I2C>> {
+        let mut i2c = i2c;
         let ee = calibration::read_ee(&mut i2c, ADDR)?;
         let params = calibration::extract_parameters(&ee)?;
 
-        let mut driver = Mlx90640 {
+        Ok(Mlx90640 {
             i2c,
             params,
             ambient_temp: 25.0,
             emissivity: 0.95,
-            _marker: PhantomData,
-        };
-        driver.set_frame_rate(FrameRate::Eight)?;
-        Ok(driver)
+            tr: 25.0,
+        })
     }
 
     pub fn set_frame_rate(&mut self, rate: FrameRate) -> Result<(), Error<I2C>> {
         calibration::set_frame_rate(&mut self.i2c, ADDR, rate.as_raw())
+    }
+
+    pub fn set_emissivity(&mut self, e: f32) {
+        self.emissivity = e;
+    }
+
+    pub fn set_tr(&mut self, tr: f32) {
+        self.tr = tr;
     }
 
     pub fn ambient_temperature(&self) -> f32 {
@@ -42,11 +49,16 @@ impl<I2C: I2c> Mlx90640<I2C> {
     }
 
     pub fn generate_image(&mut self, dest: &mut [f32; 768]) -> Result<(), Error<I2C>> {
-        loop {
+        for _ in 0..MAX_WAIT_ITERATIONS {
             let status = calibration::read_status(&mut self.i2c, ADDR)?;
             if status & 0x0008 != 0 {
                 break;
             }
+        }
+
+        let final_status = calibration::read_status(&mut self.i2c, ADDR)?;
+        if final_status & 0x0008 == 0 {
+            return Err(Error::Timeout);
         }
 
         calibration::write_status(&mut self.i2c, ADDR, INIT_STATUS)?;
@@ -68,7 +80,7 @@ impl<I2C: I2c> Mlx90640<I2C> {
 
         calibration::validate_frame_data(&frame_data, frame_data[833])?;
 
-        let ta = calculations::calculate_to(&frame_data, &self.params, self.emissivity, 25.0, dest);
+        let ta = calculations::calculate_to(&frame_data, &self.params, self.emissivity, self.tr, dest);
         self.ambient_temp = ta;
 
         let mode = (ctrl >> 12) & 0x01;

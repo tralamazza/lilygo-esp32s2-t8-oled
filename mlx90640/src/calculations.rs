@@ -1,6 +1,4 @@
-use crate::calibration::CalibrationParams;
-
-const SCALE_ALPHA: f32 = 0.000001;
+use crate::calibration::{CalibrationParams, SCALE_ALPHA};
 
 pub(crate) fn get_vdd(frame_data: &[u16; 834], params: &CalibrationParams) -> f32 {
     let resolution_ram = (frame_data[832] >> 10) & 0x03;

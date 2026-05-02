@@ -3,7 +3,7 @@
 `no_std` driver for the Melexis MLX90640 32×24 far-infrared thermal camera.
 
 Ported from the [official Melexis C library](https://github.com/melexis/mlx90640-library).
-Uses `embedded-hal` 1.0 I2C, with optional `libm` for float math.
+Uses `embedded-hal` 1.0 I2C and `libm` for `no_std` float math.
 
 ## Features
 
@@ -21,6 +21,8 @@ use mlx90640::{FrameRate, Mlx90640};
 
 let mut cam = Mlx90640::new(i2c).unwrap();
 cam.set_frame_rate(FrameRate::Eight).unwrap();
+cam.set_emissivity(0.95);
+cam.set_tr(25.0);
 
 let mut temps = [0.0f32; 768];
 cam.generate_image(&mut temps).unwrap();
@@ -29,8 +31,9 @@ cam.generate_image(&mut temps).unwrap();
 let ambient = cam.ambient_temperature();
 ```
 
-`generate_image()` blocks until new frame data is available from the sensor,
-returns corrected temperatures, and stores the ambient temperature internally.
+`generate_image()` polls up to 2000 times (or until I2C error) waiting for a new frame,
+then reads pixel RAM, calculates temperatures, and corrects bad pixels. Returns
+`Error::Timeout` if no frame arrives within the poll limit. Stores the ambient temperature internally.
 
 ## API
 
@@ -39,12 +42,19 @@ pub struct Mlx90640<I2C> { /* ... */ }
 
 impl<I2C: embedded_hal::i2c::I2c> Mlx90640<I2C> {
     /// Loads EEPROM calibration and initializes driver.
+    /// Does not set a frame rate — call set_frame_rate() before generate_image().
     pub fn new(i2c: I2C) -> Result<Self, Error<I2C>>;
 
     /// Sets frame rate. Returns error on I2C failure.
     pub fn set_frame_rate(&mut self, rate: FrameRate) -> Result<(), Error<I2C>>;
 
-    /// Blocks until new data ready, reads pixel RAM, calculates temperatures,
+    /// Sets emissivity (default 0.95).
+    pub fn set_emissivity(&mut self, e: f32);
+
+    /// Sets reflected temperature in °C (default 25.0).
+    pub fn set_tr(&mut self, tr: f32);
+
+    /// Polls for new frame (with timeout), reads pixel RAM, calculates temperatures,
     /// corrects bad pixels. Writes result into `dest` (768 f32 values).
     pub fn generate_image(&mut self, dest: &mut [f32; 768]) -> Result<(), Error<I2C>>;
 
@@ -64,6 +74,7 @@ pub enum Error<I2C: embedded_hal::i2c::I2c> {
     TooManyBadPixels,
     AdjacentBadPixels,
     FrameDataError,
+    Timeout,
 }
 ```
 
@@ -74,9 +85,9 @@ or if any bad pixels are adjacent.
 
 ```rust
 pub enum FrameRate {
-    Half     = 0,  // 0.5 Hz
+    Half     = 0,  // 0.5 Hz (factory default after POR)
     One      = 1,  // 1 Hz
-    Two      = 2,  // 2 Hz (default)
+    Two      = 2,  // 2 Hz
     Four     = 3,  // 4 Hz
     Eight    = 4,  // 8 Hz
     Sixteen  = 5,  // 16 Hz
@@ -84,12 +95,3 @@ pub enum FrameRate {
     SixtyFour = 7, // 64 Hz
 }
 ```
-
-## Cargo features
-
-| Feature | Default | Description |
-|---------|---------|-------------|
-| `libm`  | yes     | Use `libm` for `sqrtf`/`powf`/`fabsf` in `no_std` |
-
-Disable `libm` (`default-features = false`) if your target provides these intrinsics
-(e.g. ESP32-S2 via compiler-builtins).

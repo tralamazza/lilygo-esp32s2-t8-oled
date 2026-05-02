@@ -10,20 +10,22 @@ where
     TooManyBadPixels,
     AdjacentBadPixels,
     FrameDataError,
+    Timeout,
 }
 
-impl<I2C> core::fmt::Debug for Error<I2C>
+impl<I2C: i2c::I2c> core::fmt::Debug for Error<I2C>
 where
-    I2C: i2c::I2c,
+    I2C::Error: core::fmt::Debug,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Error::I2cError(_) => f.write_str("I2cError"),
+            Error::I2cError(e) => f.debug_tuple("I2cError").field(e).finish(),
             Error::TooManyBrokenPixels => f.write_str("TooManyBrokenPixels"),
             Error::TooManyOutlierPixels => f.write_str("TooManyOutlierPixels"),
             Error::TooManyBadPixels => f.write_str("TooManyBadPixels"),
             Error::AdjacentBadPixels => f.write_str("AdjacentBadPixels"),
             Error::FrameDataError => f.write_str("FrameDataError"),
+            Error::Timeout => f.write_str("Timeout"),
         }
     }
 }
@@ -81,5 +83,45 @@ impl From<FrameRate> for f32 {
             FrameRate::ThirtyTwo => 32.0,
             FrameRate::SixtyFour => 64.0,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frame_rate_round_trip() {
+        let rates = [
+            FrameRate::Half,
+            FrameRate::One,
+            FrameRate::Two,
+            FrameRate::Four,
+            FrameRate::Eight,
+            FrameRate::Sixteen,
+            FrameRate::ThirtyTwo,
+            FrameRate::SixtyFour,
+        ];
+        for &rate in &rates {
+            assert_eq!(FrameRate::from_raw(rate.as_raw()), Some(rate));
+        }
+    }
+
+    #[test]
+    fn frame_rate_out_of_range() {
+        assert_eq!(FrameRate::from_raw(8), None);
+        assert_eq!(FrameRate::from_raw(255), None);
+    }
+
+    #[test]
+    fn frame_rate_to_f32() {
+        assert_eq!(f32::from(FrameRate::Half), 0.5);
+        assert_eq!(f32::from(FrameRate::One), 1.0);
+        assert_eq!(f32::from(FrameRate::Two), 2.0);
+        assert_eq!(f32::from(FrameRate::Four), 4.0);
+        assert_eq!(f32::from(FrameRate::Eight), 8.0);
+        assert_eq!(f32::from(FrameRate::Sixteen), 16.0);
+        assert_eq!(f32::from(FrameRate::ThirtyTwo), 32.0);
+        assert_eq!(f32::from(FrameRate::SixtyFour), 64.0);
     }
 }

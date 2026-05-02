@@ -161,7 +161,10 @@ where
     let mut fr = FRAME_RATES[fr_idx];
 
     let mut camera = match Mlx90640::new(i2c) {
-        Ok(c) => c,
+        Ok(mut c) => {
+            let _ = c.set_frame_rate(fr);
+            c
+        }
         Err(e) => {
             display.clear(Color::BLACK).unwrap();
             let font = MonoTextStyle::new(&FONT_6X10, Color::RED);

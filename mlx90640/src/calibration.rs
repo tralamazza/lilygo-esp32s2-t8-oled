@@ -18,7 +18,7 @@ const LINE_NUM: usize = 24;
 const COLUMN_NUM: usize = 32;
 const LINE_SIZE: usize = 32;
 
-const SCALE_ALPHA: f32 = 0.000001;
+pub(crate) const SCALE_ALPHA: f32 = 0.000001;
 
 const NIBBLE1_MASK: u16 = 0x000F;
 const NIBBLE2_MASK: u16 = 0x00F0;
@@ -615,4 +615,152 @@ pub(crate) fn read_ctrl<I2C: I2c>(
     addr: u8,
 ) -> Result<u16, Error<I2C>> {
     read_register(i2c, addr, CTRL_REG)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct MockI2c;
+
+    impl embedded_hal::i2c::ErrorType for MockI2c {
+        type Error = core::convert::Infallible;
+    }
+
+    impl embedded_hal::i2c::I2c for MockI2c {
+        fn transaction(
+            &mut self,
+            _address: u8,
+            _operations: &mut [embedded_hal::i2c::Operation<'_>],
+        ) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    fn ok<T>(r: Result<T, Error<MockI2c>>) -> bool {
+        r.is_ok()
+    }
+
+    #[test]
+    fn nibble_extraction() {
+        let w: u16 = 0xABCD;
+        assert_eq!(nibble1(w), 0xD);
+        assert_eq!(nibble2(w), 0xC);
+        assert_eq!(nibble3(w), 0xB);
+        assert_eq!(nibble4(w), 0xA);
+    }
+
+    #[test]
+    fn nibble_mask_boundaries() {
+        assert_eq!(nibble1(0xF), 0xF);
+        assert_eq!(nibble1(0x10), 0x0);
+        assert_eq!(nibble2(0xF0), 0xF);
+        assert_eq!(nibble3(0xF00), 0xF);
+        assert_eq!(nibble4(0xF000), 0xF);
+    }
+
+    #[test]
+    fn ms_ls_byte() {
+        let w: u16 = 0xABCD;
+        assert_eq!(ms_byte(w), 0xAB);
+        assert_eq!(ls_byte(w), 0xCD);
+    }
+
+    #[test]
+    fn msbits6_lsbits10() {
+        let w: u16 = 0xFC00 | 63;
+        assert_eq!(msbits6(w), 63);
+        assert_eq!(lsbits10(w), 63);
+
+        let w2: u16 = (42 << 10) | 42;
+        assert_eq!(msbits6(w2), 42);
+        assert_eq!(lsbits10(w2), 42);
+    }
+
+    #[test]
+    fn check_adjacent_same_pixel() {
+        assert!(check_adjacent_pixels(0, 0));
+    }
+
+    #[test]
+    fn check_adjacent_neighbors() {
+        assert!(check_adjacent_pixels(0, 33));
+        assert!(check_adjacent_pixels(33, 32));
+        assert!(check_adjacent_pixels(32, 1));
+    }
+
+    #[test]
+    fn check_adjacent_diagonal() {
+        assert!(check_adjacent_pixels(0, 33));
+        assert!(check_adjacent_pixels(33, 65));
+    }
+
+    #[test]
+    fn check_adjacent_distant() {
+        assert!(!check_adjacent_pixels(0, 100));
+        assert!(!check_adjacent_pixels(0, 96));
+    }
+
+    #[test]
+    fn check_adjacent_row_boundary() {
+        assert!(!check_adjacent_pixels(0, 64));
+    }
+
+    #[test]
+    fn validate_aux_data_good() {
+        let aux = [0u16; 64];
+        assert!(ok(validate_aux_data::<MockI2c>(&aux)));
+    }
+
+    #[test]
+    fn validate_aux_data_bad_index_0() {
+        let mut aux = [0u16; 64];
+        aux[0] = 0x7FFF;
+        assert!(!ok(validate_aux_data::<MockI2c>(&aux)));
+    }
+
+    #[test]
+    fn validate_aux_data_bad_in_range() {
+        let mut aux = [0u16; 64];
+        aux[9] = 0x7FFF;
+        assert!(!ok(validate_aux_data::<MockI2c>(&aux)));
+    }
+
+    #[test]
+    fn validate_aux_data_sentinel_outside_range_ok() {
+        let mut aux = [0u16; 64];
+        aux[7] = 0x7FFF;
+        assert!(ok(validate_aux_data::<MockI2c>(&aux)));
+    }
+
+    #[test]
+    fn validate_frame_data_good() {
+        let mut fd = [0u16; 834];
+        for (i, v) in fd.iter_mut().enumerate().step_by(32) {
+            *v = i as u16;
+        }
+        assert!(ok(validate_frame_data::<MockI2c>(&fd, 0)));
+    }
+
+    #[test]
+    fn validate_frame_data_sentinel_on_wrong_subpage_ok() {
+        let mut fd = [0u16; 834];
+        fd[0] = 0x7FFF;
+        assert!(ok(validate_frame_data::<MockI2c>(&fd, 1)));
+    }
+
+    #[test]
+    fn validate_frame_data_sentinel_on_correct_subpage_err() {
+        let mut fd = [0u16; 834];
+        fd[0] = 0x7FFF;
+        assert!(!ok(validate_frame_data::<MockI2c>(&fd, 0)));
+    }
+
+    #[test]
+    fn validate_frame_data_sentinel_on_odd_line_even_subpage() {
+        let mut fd = [0u16; 834];
+        fd[32] = 0x7FFF;
+        assert!(!ok(validate_frame_data::<MockI2c>(&fd, 1)));
+        assert!(ok(validate_frame_data::<MockI2c>(&fd, 0)));
+    }
 }
