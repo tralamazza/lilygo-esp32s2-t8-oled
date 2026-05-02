@@ -119,6 +119,7 @@ where
                 *backlight_level = LEVELS[level_idx];
             }
             ButtonEvent::LongPress => {
+                wait_for_release(button);
                 return super::AppKind::Menu;
             }
             ButtonEvent::None => {}

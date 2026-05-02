@@ -102,6 +102,7 @@ where
                 draw_menu(display, selection);
             }
             ButtonEvent::LongPress => {
+                wait_for_release(button);
                 return items[selection];
             }
             ButtonEvent::None => {}

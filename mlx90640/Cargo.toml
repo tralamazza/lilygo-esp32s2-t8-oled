@@ -1,0 +1,13 @@
+[package]
+name = "mlx90640"
+version = "0.1.0"
+edition = "2024"
+description = "no_std driver for the MLX90640 32x24 IR thermal camera with bad pixel correction"
+
+[features]
+default = ["libm"]
+libm = ["dep:libm"]
+
+[dependencies]
+embedded-hal = "1.0"
+libm = { version = "0.2", optional = true }

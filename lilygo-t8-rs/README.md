@@ -15,7 +15,7 @@ Rust firmware for the LilyGO T8 ESP32-S2 (aka T-Display S2) with ST7789 display 
 cargo install espup
 espup install
 
-# Build, flash, and monitor
+# Build, flash, and monitor (from this directory, or use -p from workspace root)
 cargo run --release
 ```
 
@@ -63,11 +63,11 @@ Displays color bars (RED, GREEN, BLUE, CYAN, MAGENTA, YELLOW, WHITE), a hue grad
 
 ### Thermal Camera
 
-MLX90640 32×24 live thermal view with two colormaps. The overlay bar shows min/max temperature range, ambient temperature, current colormap, and I2C error count.
+MLX90640 32×24 live thermal view with ironbow colormap. The overlay bar shows min/max temperature range, ambient temperature, frame rate, and I2C error count.
 
 | Input | Action |
 |-------|--------|
-| Short press | Toggle colormap (ironbow ↔ lava) |
+| Short press | Cycle frame rate (2/4/8/16/32 Hz) |
 | Long press | Return to menu |
 
 > **Note:** The I2C bus is consumed by the camera driver on entry and not returned on exit. Re-entering this app after leaving requires a reboot.

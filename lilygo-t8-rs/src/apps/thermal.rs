@@ -1,5 +1,7 @@
 use crate::apps::Color;
-use crate::hw::{BacklightControl, ButtonEvent, ButtonInput, Delay, wait_for_event};
+use crate::hw::{
+    BacklightControl, ButtonEvent, ButtonInput, Delay, wait_for_event, wait_for_release,
+};
 use core::fmt::Write;
 use embedded_graphics::{
     mono_font::{MonoTextStyle, ascii::FONT_6X10},
@@ -7,7 +9,7 @@ use embedded_graphics::{
     primitives::{PrimitiveStyleBuilder, Rectangle},
     text::{Alignment, Text},
 };
-use mlx9064x::{FrameRate, Mlx90640Driver};
+use mlx90640::{FrameRate, Mlx90640};
 
 const W: i32 = 135;
 const H: i32 = 240;
@@ -136,9 +138,7 @@ where
     D::Error: core::fmt::Debug,
     B: ButtonInput,
     BL: BacklightControl,
-    I2C: embedded_hal_02::blocking::i2c::WriteRead
-        + embedded_hal_02::blocking::i2c::Write
-        + embedded_hal_02::blocking::i2c::Read,
+    I2C: embedded_hal::i2c::I2c,
 {
     let i2c = match i2c_opt.take() {
         Some(bus) => bus,
@@ -160,18 +160,14 @@ where
     let mut fr_idx: usize = 2;
     let mut fr = FRAME_RATES[fr_idx];
 
-    let mut camera = match Mlx90640Driver::new(i2c, 0x33) {
-        Ok(mut c) => {
-            let _ = c.set_frame_rate(fr);
-            c
-        }
+    let mut camera = match Mlx90640::new(i2c) {
+        Ok(c) => c,
         Err(e) => {
             display.clear(Color::BLACK).unwrap();
             let font = MonoTextStyle::new(&FONT_6X10, Color::RED);
             let msg = match e {
-                mlx9064x::Error::I2cWriteReadError(_) => "I2C read err - chk wiring",
-                mlx9064x::Error::I2cWriteError(_) => "I2C write err",
-                mlx9064x::Error::LibraryError(_) => "Calibration err",
+                mlx90640::Error::I2cError(_) => "I2C err - chk wiring",
+                _ => "Calibration err",
             };
             let _ = Text::with_alignment(msg, Point::new(W / 2, H / 2), font, Alignment::Center)
                 .draw(display);
@@ -185,6 +181,7 @@ where
             .draw(display);
             loop {
                 if let ButtonEvent::LongPress = wait_for_event(button) {
+                    wait_for_release(button);
                     return super::AppKind::Menu;
                 }
             }
@@ -202,8 +199,8 @@ where
     let mut row_buf = [Color::BLACK; W as usize];
 
     loop {
-        match camera.generate_image_if_ready(&mut temps) {
-            Ok(true) => {
+        match camera.generate_image(&mut temps) {
+            Ok(()) => {
                 let (min_t, max_t) = temps.iter().fold((f32::MAX, f32::MIN), |(mn, mx), &t| {
                     (if t < mn { t } else { mn }, if t > mx { t } else { mx })
                 });
@@ -242,7 +239,7 @@ where
 
                 let (min_int, min_frac) = f32_to_int_frac(min_t);
                 let (max_int, max_frac) = f32_to_int_frac(max_t);
-                let amb = camera.ambient_temperature().unwrap_or(0.0);
+                let amb = camera.ambient_temperature();
                 let (amb_int, amb_frac) = f32_to_int_frac(amb);
 
                 let mut buf1 = FmtBuf::new();
@@ -280,9 +277,6 @@ where
                 )
                 .draw(display);
             }
-            Ok(false) => {
-                Delay::wait_ms(50);
-            }
             Err(_) => {
                 err_count = err_count.saturating_add(1);
                 Delay::wait_ms(100);
@@ -290,7 +284,10 @@ where
         }
 
         match wait_for_event(button) {
-            ButtonEvent::LongPress => return super::AppKind::Menu,
+            ButtonEvent::LongPress => {
+                wait_for_release(button);
+                return super::AppKind::Menu;
+            }
             ButtonEvent::ShortPress => {
                 fr_idx = (fr_idx + 1) % FRAME_RATES.len();
                 fr = FRAME_RATES[fr_idx];

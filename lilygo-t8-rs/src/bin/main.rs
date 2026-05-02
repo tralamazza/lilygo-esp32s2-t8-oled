@@ -23,7 +23,6 @@ use esp_hal::{
 };
 use lilygo_t8_rs::apps::AppKind;
 use lilygo_t8_rs::hw::Delay;
-use lilygo_t8_rs::i2c_compat::I2cCompat;
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
@@ -110,7 +109,7 @@ fn main() -> ! {
     .with_sda(peripherals.GPIO39)
     .with_scl(peripherals.GPIO40);
 
-    let mut i2c_opt = Some(I2cCompat::new(i2c));
+    let mut i2c_opt = Some(i2c);
 
     let mut delay = Delay;
     let mut backlight_level: u8 = 50;
