@@ -1,14 +1,8 @@
 use crate::calibration::CalibrationParams;
 use crate::math;
 
-fn get_median(values: &mut [f32; 4], n: usize) -> f32 {
-    for i in 0..n - 1 {
-        for j in (i + 1)..n {
-            if values[j] < values[i] {
-                values.swap(i, j);
-            }
-        }
-    }
+fn get_median(values: &mut [f32], n: usize) -> f32 {
+    values[..n].sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal));
     if n.is_multiple_of(2) {
         (values[n / 2] + values[n / 2 - 1]) / 2.0
     } else {
@@ -27,7 +21,7 @@ fn is_pixel_bad(pixel: u16, params: &CalibrationParams) -> bool {
 
 pub(crate) fn correct_bad_pixels(
     pixels: &[u16; 5],
-    to: &mut [f32; 768],
+    to: &mut [f32],
     mode: u16,
     params: &CalibrationParams,
 ) {

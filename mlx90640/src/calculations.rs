@@ -20,7 +20,7 @@ pub(crate) fn calculate_to(
     params: &CalibrationParams,
     emissivity: f32,
     tr: f32,
-    result: &mut [f32; 768],
+    result: &mut [f32],
 ) -> f32 {
     let subpage = frame_data[833];
     let vdd = get_vdd(frame_data, params);

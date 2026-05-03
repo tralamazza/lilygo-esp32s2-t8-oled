@@ -20,14 +20,7 @@ const LINE_SIZE: usize = 32;
 
 pub(crate) const SCALE_ALPHA: f32 = 0.000001;
 
-const NIBBLE1_MASK: u16 = 0x000F;
-const NIBBLE2_MASK: u16 = 0x00F0;
-const NIBBLE3_MASK: u16 = 0x0F00;
-const NIBBLE4_MASK: u16 = 0xF000;
-const MSBITS_6_MASK: u16 = 0xFC00;
-const LSBITS_10_MASK: u16 = 0x03FF;
-const MS_BYTE_MASK: u16 = 0xFF00;
-const LS_BYTE_MASK: u16 = 0x00FF;
+
 
 #[derive(Clone, Debug)]
 pub(crate) struct CalibrationParams {
@@ -60,55 +53,49 @@ pub(crate) struct CalibrationParams {
     pub outlier_pixels: [u16; 5],
 }
 
-fn nibble1(w: u16) -> u16 { w & NIBBLE1_MASK }
-fn nibble2(w: u16) -> u16 { (w & NIBBLE2_MASK) >> 4 }
-fn nibble3(w: u16) -> u16 { (w & NIBBLE3_MASK) >> 8 }
-fn nibble4(w: u16) -> u16 { (w & NIBBLE4_MASK) >> 12 }
-fn ms_byte(w: u16) -> u8 { ((w & MS_BYTE_MASK) >> 8) as u8 }
-fn ls_byte(w: u16) -> u8 { (w & LS_BYTE_MASK) as u8 }
-fn msbits6(w: u16) -> u16 { (w & MSBITS_6_MASK) >> 10 }
-fn lsbits10(w: u16) -> u16 { w & LSBITS_10_MASK }
+fn nibble1(w: u16) -> u16 { w & 0xF }
+fn nibble2(w: u16) -> u16 { (w >> 4) & 0xF }
+fn nibble3(w: u16) -> u16 { (w >> 8) & 0xF }
+fn nibble4(w: u16) -> u16 { w >> 12 }
+fn ms_byte(w: u16) -> u8 { (w >> 8) as u8 }
+fn ls_byte(w: u16) -> u8 { w as u8 }
+fn msbits6(w: u16) -> u16 { (w >> 10) & 0x3F }
+fn lsbits10(w: u16) -> u16 { w & 0x3FF }
+
+fn read_words<I2C: I2c, const N: usize, const BUF: usize>(
+    i2c: &mut I2C,
+    addr: u8,
+    start_reg: u16,
+) -> Result<[u16; N], Error<I2C>> {
+    let mut buf = [0u8; BUF];
+    i2c.write_read(addr, &start_reg.to_be_bytes(), &mut buf)
+        .map_err(Error::I2cError)?;
+    let mut words = [0u16; N];
+    for (i, chunk) in buf.chunks_exact(2).enumerate() {
+        words[i] = u16::from_be_bytes([chunk[0], chunk[1]]);
+    }
+    Ok(words)
+}
 
 pub(crate) fn read_ee<I2C: I2c>(
     i2c: &mut I2C,
     addr: u8,
 ) -> Result<[u16; EEPROM_LEN as usize], Error<I2C>> {
-    let mut buf = [0u8; EEPROM_LEN as usize * 2];
-    i2c.write_read(addr, &EEPROM_START.to_be_bytes(), &mut buf)
-        .map_err(Error::I2cError)?;
-    let mut words = [0u16; EEPROM_LEN as usize];
-    for (i, chunk) in buf.chunks_exact(2).enumerate() {
-        words[i] = u16::from_be_bytes([chunk[0], chunk[1]]);
-    }
-    Ok(words)
+    read_words::<I2C, { EEPROM_LEN as usize }, { EEPROM_LEN as usize * 2 }>(i2c, addr, EEPROM_START)
 }
 
 pub(crate) fn read_pixel_ram<I2C: I2c>(
     i2c: &mut I2C,
     addr: u8,
 ) -> Result<[u16; PIXEL_NUM as usize], Error<I2C>> {
-    let mut buf = [0u8; PIXEL_NUM as usize * 2];
-    i2c.write_read(addr, &PIXEL_DATA_START.to_be_bytes(), &mut buf)
-        .map_err(Error::I2cError)?;
-    let mut words = [0u16; PIXEL_NUM as usize];
-    for (i, chunk) in buf.chunks_exact(2).enumerate() {
-        words[i] = u16::from_be_bytes([chunk[0], chunk[1]]);
-    }
-    Ok(words)
+    read_words::<I2C, { PIXEL_NUM as usize }, { PIXEL_NUM as usize * 2 }>(i2c, addr, PIXEL_DATA_START)
 }
 
 pub(crate) fn read_aux_ram<I2C: I2c>(
     i2c: &mut I2C,
     addr: u8,
 ) -> Result<[u16; AUX_NUM as usize], Error<I2C>> {
-    let mut buf = [0u8; AUX_NUM as usize * 2];
-    i2c.write_read(addr, &AUX_DATA_START.to_be_bytes(), &mut buf)
-        .map_err(Error::I2cError)?;
-    let mut words = [0u16; AUX_NUM as usize];
-    for (i, chunk) in buf.chunks_exact(2).enumerate() {
-        words[i] = u16::from_be_bytes([chunk[0], chunk[1]]);
-    }
-    Ok(words)
+    read_words::<I2C, { AUX_NUM as usize }, { AUX_NUM as usize * 2 }>(i2c, addr, AUX_DATA_START)
 }
 
 pub(crate) fn read_register<I2C: I2c>(
@@ -161,6 +148,14 @@ fn pow2(exp: i32) -> f32 {
     crate::math::pow(2.0, exp as f32)
 }
 
+fn sign_extend(value: i32, bits: u32) -> i32 {
+    if (value & (1 << (bits - 1))) != 0 {
+        value - (1 << bits)
+    } else {
+        value
+    }
+}
+
 pub(crate) fn extract_parameters<I2C: I2c>(ee_data: &[u16; EEPROM_LEN as usize]) -> Result<CalibrationParams, Error<I2C>> {
     let mut p = CalibrationParams {
         kvdd: 0,
@@ -194,25 +189,17 @@ pub(crate) fn extract_parameters<I2C: I2c>(ee_data: &[u16; EEPROM_LEN as usize])
 
     // VDD params
     {
-        let kvdd = ms_byte(ee_data[51]) as i8;
-        let mut vdd25 = ls_byte(ee_data[51]) as i16 as i32;
-        vdd25 = ((vdd25 - 256) << 5) - 8192;
-        p.kvdd = 32 * kvdd as i16;
-        p.vdd25 = vdd25 as i16;
+        p.kvdd = 32 * ms_byte(ee_data[51]) as i8 as i16;
+        p.vdd25 = ((ls_byte(ee_data[51]) as i16 as i32 - 256) << 5) as i16 - 8192;
     }
 
     // PTAT params
     {
-        let mut kvptat = ((ee_data[50] & MSBITS_6_MASK) >> 10) as i32;
-        if kvptat > 31 { kvptat -= 64; }
-        p.kvptat = kvptat as f32 / 4096.0;
-
-        let mut ktptat = (ee_data[50] & LSBITS_10_MASK) as i32;
-        if ktptat > 511 { ktptat -= 1024; }
-        p.ktptat = ktptat as f32 / 8.0;
+        p.kvptat = sign_extend(msbits6(ee_data[50]) as i32, 6) as f32 / 4096.0;
+        p.ktptat = sign_extend(lsbits10(ee_data[50]) as i32, 10) as f32 / 8.0;
 
         p.vptat25 = ee_data[49];
-        p.alpha_ptat = (ee_data[16] & NIBBLE4_MASK) as f32 / pow2(14) + 8.0;
+        p.alpha_ptat = (ee_data[16] & 0xF000) as f32 / pow2(14) + 8.0;
     }
 
     // Gain
@@ -252,23 +239,13 @@ pub(crate) fn extract_parameters<I2C: I2c>(ee_data: &[u16; EEPROM_LEN as usize])
     {
         let alpha_scale = nibble4(ee_data[32]) as i32 + 27;
 
-        let mut offset_sp0 = lsbits10(ee_data[58]) as i32;
-        if offset_sp0 > 511 { offset_sp0 -= 1024; }
-
-        let mut offset_sp1 = msbits6(ee_data[58]) as i32;
-        if offset_sp1 > 31 { offset_sp1 -= 64; }
-        offset_sp1 += offset_sp0;
-
+        let offset_sp0 = sign_extend(lsbits10(ee_data[58]) as i32, 10);
+        let offset_sp1 = offset_sp0 + sign_extend(msbits6(ee_data[58]) as i32, 6);
         p.cp_offset[0] = offset_sp0 as i16;
         p.cp_offset[1] = offset_sp1 as i16;
 
-        let mut alpha_sp0 = lsbits10(ee_data[57]) as i32;
-        if alpha_sp0 > 511 { alpha_sp0 -= 1024; }
-        p.cp_alpha[0] = alpha_sp0 as f32 / pow2(alpha_scale);
-
-        let mut alpha_sp1 = msbits6(ee_data[57]) as i32;
-        if alpha_sp1 > 31 { alpha_sp1 -= 64; }
-        p.cp_alpha[1] = (1.0 + alpha_sp1 as f32 / 128.0) * p.cp_alpha[0];
+        p.cp_alpha[0] = sign_extend(lsbits10(ee_data[57]) as i32, 10) as f32 / pow2(alpha_scale);
+        p.cp_alpha[1] = (1.0 + sign_extend(msbits6(ee_data[57]) as i32, 6) as f32 / 128.0) * p.cp_alpha[0];
 
         let kta_scale1 = nibble2(ee_data[56]) as i32 + 8;
         p.cp_kta = ls_byte(ee_data[59]) as i8 as f32 / pow2(kta_scale1);
@@ -282,17 +259,9 @@ pub(crate) fn extract_parameters<I2C: I2c>(ee_data: &[u16; EEPROM_LEN as usize])
         p.calibration_mode_ee = ((ee_data[10] & 0x0800) >> 4) as u8;
         p.calibration_mode_ee ^= 0x80;
 
-        let mut ilc0 = (ee_data[53] & 0x003F) as i32;
-        if ilc0 > 31 { ilc0 -= 64; }
-        p.il_chess_c[0] = ilc0 as f32 / 16.0;
-
-        let mut ilc1 = ((ee_data[53] & 0x07C0) >> 6) as i32;
-        if ilc1 > 15 { ilc1 -= 32; }
-        p.il_chess_c[1] = ilc1 as f32 / 2.0;
-
-        let mut ilc2 = ((ee_data[53] & 0xF800) >> 11) as i32;
-        if ilc2 > 15 { ilc2 -= 32; }
-        p.il_chess_c[2] = ilc2 as f32 / 8.0;
+        p.il_chess_c[0] = sign_extend((ee_data[53] & 0x003F) as i32, 6) as f32 / 16.0;
+        p.il_chess_c[1] = sign_extend(((ee_data[53] & 0x07C0) >> 6) as i32, 5) as f32 / 2.0;
+        p.il_chess_c[2] = sign_extend(((ee_data[53] & 0xF800) >> 11) as i32, 5) as f32 / 8.0;
     }
 
     // Alpha params
@@ -312,7 +281,7 @@ pub(crate) fn extract_parameters<I2C: I2c>(ee_data: &[u16; EEPROM_LEN as usize])
             acc_row[i * 4 + 3] = nibble4(w) as i32;
         }
         for r in acc_row.iter_mut() {
-            if *r > 7 { *r -= 16; }
+            *r = sign_extend(*r, 4);
         }
 
         let mut acc_column = [0i32; 32];
@@ -324,15 +293,14 @@ pub(crate) fn extract_parameters<I2C: I2c>(ee_data: &[u16; EEPROM_LEN as usize])
             acc_column[i * 4 + 3] = nibble4(w) as i32;
         }
         for c in acc_column.iter_mut() {
-            if *c > 7 { *c -= 16; }
+            *c = sign_extend(*c, 4);
         }
 
         let mut alpha_temp = [0.0f32; 768];
         for (i, row) in acc_row.iter().enumerate().take(LINE_NUM) {
             for (j, col) in acc_column.iter().enumerate().take(COLUMN_NUM) {
                 let pix = 32 * i + j;
-                let mut a = ((ee_data[64 + pix] & 0x03F0) >> 4) as i32;
-                if a > 31 { a -= 64; }
+                let a = sign_extend(((ee_data[64 + pix] & 0x03F0) >> 4) as i32, 6);
                 let mut val = a << acc_rem_scale;
                 val += alpha_ref + (row << acc_row_scale) + (col << acc_column_scale);
                 alpha_temp[pix] = val as f32 / pow2(alpha_scale_exp);
@@ -380,7 +348,7 @@ pub(crate) fn extract_parameters<I2C: I2c>(ee_data: &[u16; EEPROM_LEN as usize])
             occ_row[i * 4 + 3] = nibble4(w) as i32;
         }
         for r in occ_row.iter_mut() {
-            if *r > 7 { *r -= 16; }
+            *r = sign_extend(*r, 4);
         }
 
         let mut occ_column = [0i32; 32];
@@ -392,15 +360,13 @@ pub(crate) fn extract_parameters<I2C: I2c>(ee_data: &[u16; EEPROM_LEN as usize])
             occ_column[i * 4 + 3] = nibble4(w) as i32;
         }
         for c in occ_column.iter_mut() {
-            if *c > 7 { *c -= 16; }
+            *c = sign_extend(*c, 4);
         }
 
         for (i, row) in occ_row.iter().enumerate().take(LINE_NUM) {
             for (j, col) in occ_column.iter().enumerate().take(COLUMN_NUM) {
                 let pix = 32 * i + j;
-                let mut off = msbits6(ee_data[64 + pix]) as i32;
-                if off > 31 { off -= 64; }
-                off <<= occ_rem_scale;
+                let mut off = sign_extend(msbits6(ee_data[64 + pix]) as i32, 6) << occ_rem_scale;
                 off += offset_ref + (row << occ_row_scale) + (col << occ_column_scale);
                 p.offset[pix] = off as i16;
             }
@@ -423,9 +389,7 @@ pub(crate) fn extract_parameters<I2C: I2c>(ee_data: &[u16; EEPROM_LEN as usize])
             for j in 0..COLUMN_NUM {
                 let pix = 32 * i + j;
                 let split = 2 * (pix as i32 / 32 - (pix as i32 / 64) * 2) + (pix as i32 % 2);
-                let mut kt = ((ee_data[64 + pix] & 0x000E) >> 1) as i32;
-                if kt > 3 { kt -= 8; }
-                kt <<= kta_scale2;
+                let mut kt = sign_extend(((ee_data[64 + pix] & 0x000E) >> 1) as i32, 3) << kta_scale2;
                 kt += kta_rc[split as usize] as i32;
                 kta_temp[pix] = kt as f32 / pow2(kta_scale1);
             }
@@ -459,21 +423,10 @@ pub(crate) fn extract_parameters<I2C: I2c>(ee_data: &[u16; EEPROM_LEN as usize])
     {
         let mut kv_t = [0i8; 4];
 
-        let mut k = nibble4(ee_data[52]) as i32;
-        if k > 7 { k -= 16; }
-        kv_t[0] = k as i8;
-
-        k = nibble3(ee_data[52]) as i32;
-        if k > 7 { k -= 16; }
-        kv_t[2] = k as i8;
-
-        k = nibble2(ee_data[52]) as i32;
-        if k > 7 { k -= 16; }
-        kv_t[1] = k as i8;
-
-        k = nibble1(ee_data[52]) as i32;
-        if k > 7 { k -= 16; }
-        kv_t[3] = k as i8;
+        kv_t[0] = sign_extend(nibble4(ee_data[52]) as i32, 4) as i8;
+        kv_t[2] = sign_extend(nibble3(ee_data[52]) as i32, 4) as i8;
+        kv_t[1] = sign_extend(nibble2(ee_data[52]) as i32, 4) as i8;
+        kv_t[3] = sign_extend(nibble1(ee_data[52]) as i32, 4) as i8;
 
         let kv_scale = nibble3(ee_data[56]);
 
@@ -570,10 +523,10 @@ pub(crate) fn extract_parameters<I2C: I2c>(ee_data: &[u16; EEPROM_LEN as usize])
 }
 
 fn check_adjacent_pixels(pix1: u16, pix2: u16) -> bool {
-    let lp1 = pix1 >> 5;
-    let lp2 = pix2 >> 5;
-    let cp1 = pix1 - (lp1 << 5);
-    let cp2 = pix2 - (lp2 << 5);
+    let lp1 = pix1 / 32;
+    let lp2 = pix2 / 32;
+    let cp1 = pix1 % 32;
+    let cp2 = pix2 % 32;
 
     let row_diff = (lp1 as i32) - (lp2 as i32);
     if row_diff > -2 && row_diff < 2 {

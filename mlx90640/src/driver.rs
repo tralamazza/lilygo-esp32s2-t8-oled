@@ -5,7 +5,6 @@ use crate::calculations;
 use crate::calibration::{self, CalibrationParams};
 use crate::types::{Error, FrameRate};
 
-const ADDR: u8 = 0x33;
 const INIT_STATUS: u16 = 0x0030;
 const MAX_WAIT_ITERATIONS: u32 = 2000;
 
@@ -20,7 +19,7 @@ pub struct Mlx90640<I2C> {
 impl<I2C: I2c> Mlx90640<I2C> {
     pub fn new(i2c: I2C) -> Result<Self, Error<I2C>> {
         let mut i2c = i2c;
-        let ee = calibration::read_ee(&mut i2c, ADDR)?;
+        let ee = calibration::read_ee(&mut i2c, crate::ADDRESS)?;
         let params = calibration::extract_parameters(&ee)?;
 
         Ok(Mlx90640 {
@@ -33,7 +32,7 @@ impl<I2C: I2c> Mlx90640<I2C> {
     }
 
     pub fn set_frame_rate(&mut self, rate: FrameRate) -> Result<(), Error<I2C>> {
-        calibration::set_frame_rate(&mut self.i2c, ADDR, rate.as_raw())
+        calibration::set_frame_rate(&mut self.i2c, crate::ADDRESS, u16::from(rate))
     }
 
     pub fn set_emissivity(&mut self, e: f32) {
@@ -50,32 +49,32 @@ impl<I2C: I2c> Mlx90640<I2C> {
 
     pub fn generate_image(&mut self, dest: &mut [f32; 768]) -> Result<(), Error<I2C>> {
         for _ in 0..MAX_WAIT_ITERATIONS {
-            let status = calibration::read_status(&mut self.i2c, ADDR)?;
+            let status = calibration::read_status(&mut self.i2c, crate::ADDRESS)?;
             if status & 0x0008 != 0 {
                 break;
             }
         }
 
-        let final_status = calibration::read_status(&mut self.i2c, ADDR)?;
+        let final_status = calibration::read_status(&mut self.i2c, crate::ADDRESS)?;
         if final_status & 0x0008 == 0 {
             return Err(Error::Timeout);
         }
 
-        calibration::write_status(&mut self.i2c, ADDR, INIT_STATUS)?;
+        calibration::write_status(&mut self.i2c, crate::ADDRESS, INIT_STATUS)?;
 
         let mut frame_data = [0u16; 834];
-        let pixel_data = calibration::read_pixel_ram(&mut self.i2c, ADDR)?;
+        let pixel_data = calibration::read_pixel_ram(&mut self.i2c, crate::ADDRESS)?;
         frame_data[..pixel_data.len()].copy_from_slice(&pixel_data);
 
-        let aux_data = calibration::read_aux_ram(&mut self.i2c, ADDR)?;
+        let aux_data = calibration::read_aux_ram(&mut self.i2c, crate::ADDRESS)?;
         calibration::validate_aux_data(&aux_data)?;
         for (i, &val) in aux_data.iter().enumerate() {
             frame_data[pixel_data.len() + i] = val;
         }
 
-        let ctrl = calibration::read_ctrl(&mut self.i2c, ADDR)?;
+        let ctrl = calibration::read_ctrl(&mut self.i2c, crate::ADDRESS)?;
         frame_data[832] = ctrl;
-        let status = calibration::read_status(&mut self.i2c, ADDR)?;
+        let status = calibration::read_status(&mut self.i2c, crate::ADDRESS)?;
         frame_data[833] = status & 0x0001;
 
         calibration::validate_frame_data(&frame_data, frame_data[833])?;
