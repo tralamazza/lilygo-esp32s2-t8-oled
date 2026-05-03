@@ -1,15 +1,16 @@
 use crate::calibration::{CalibrationParams, SCALE_ALPHA};
+use crate::math;
 
 pub(crate) fn get_vdd(frame_data: &[u16; 834], params: &CalibrationParams) -> f32 {
     let resolution_ram = (frame_data[832] >> 10) & 0x03;
-    let resolution_correction = libm::powf(2.0, params.resolution_ee as f32) / libm::powf(2.0, resolution_ram as f32);
+    let resolution_correction = math::pow(2.0, params.resolution_ee as f32) / math::pow(2.0, resolution_ram as f32);
     (resolution_correction * frame_data[810] as i16 as f32 - params.vdd25 as f32) / params.kvdd as f32 + 3.3
 }
 
 pub(crate) fn get_ta(frame_data: &[u16; 834], params: &CalibrationParams) -> f32 {
     let vdd = get_vdd(frame_data, params);
     let ptat = frame_data[800] as i16 as f32;
-    let ptat_art = (ptat / (ptat * params.alpha_ptat + frame_data[768] as i16 as f32)) * libm::powf(2.0, 18.0);
+    let ptat_art = (ptat / (ptat * params.alpha_ptat + frame_data[768] as i16 as f32)) * math::pow(2.0, 18.0);
     
     (ptat_art / (1.0 + params.kvptat * (vdd - 3.3)) - params.vptat25 as f32) / params.ktptat + 25.0
 }
@@ -33,9 +34,9 @@ pub(crate) fn calculate_to(
     tr4 = tr4 * tr4;
     let ta_tr = tr4 - (tr4 - ta4) / emissivity;
 
-    let kta_scale = libm::powf(2.0, params.kta_scale as f32);
-    let kv_scale = libm::powf(2.0, params.kv_scale as f32);
-    let alpha_scale = libm::powf(2.0, params.alpha_scale as f32);
+    let kta_scale = math::pow(2.0, params.kta_scale as f32);
+    let kv_scale = math::pow(2.0, params.kv_scale as f32);
+    let alpha_scale = math::pow(2.0, params.alpha_scale as f32);
 
     let mut alpha_corr_r = [1.0f32; 4];
     alpha_corr_r[0] = 1.0 / (1.0 + params.ks_to[0] * 40.0);
@@ -96,9 +97,9 @@ pub(crate) fn calculate_to(
             alpha_compensated *= 1.0 + params.ks_ta * (ta - 25.0);
 
             let ac3 = alpha_compensated * alpha_compensated * alpha_compensated;
-            let sx = libm::sqrtf(libm::sqrtf(ac3 * (ir_data + alpha_compensated * ta_tr))) * params.ks_to[1];
+            let sx = math::sqrt(math::sqrt(ac3 * (ir_data + alpha_compensated * ta_tr))) * params.ks_to[1];
 
-            let mut to = libm::sqrtf(libm::sqrtf(
+            let mut to = math::sqrt(math::sqrt(
                 ir_data / (alpha_compensated * (1.0 - params.ks_to[1] * 273.15) + sx) + ta_tr,
             )) - 273.15;
 
@@ -112,7 +113,7 @@ pub(crate) fn calculate_to(
                 3
             };
 
-            to = libm::sqrtf(libm::sqrtf(
+            to = math::sqrt(math::sqrt(
                 ir_data
                     / (alpha_compensated
                         * alpha_corr_r[range]

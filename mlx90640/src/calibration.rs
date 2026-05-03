@@ -158,7 +158,7 @@ pub(crate) fn validate_aux_data<I2C: I2c>(aux_data: &[u16]) -> Result<(), Error<
 }
 
 fn pow2(exp: i32) -> f32 {
-    libm::powf(2.0, exp as f32)
+    crate::math::pow(2.0, exp as f32)
 }
 
 pub(crate) fn extract_parameters<I2C: I2c>(ee_data: &[u16; EEPROM_LEN as usize]) -> Result<CalibrationParams, Error<I2C>> {
@@ -431,9 +431,9 @@ pub(crate) fn extract_parameters<I2C: I2c>(ee_data: &[u16; EEPROM_LEN as usize])
             }
         }
 
-        let mut max_val = libm::fabsf(kta_temp[0]);
+        let mut max_val = crate::math::abs(kta_temp[0]);
         for &v in kta_temp.iter().skip(1) {
-            let a = libm::fabsf(v);
+            let a = crate::math::abs(v);
             if a > max_val { max_val = a; }
         }
 
@@ -486,9 +486,9 @@ pub(crate) fn extract_parameters<I2C: I2c>(ee_data: &[u16; EEPROM_LEN as usize])
             }
         }
 
-        let mut max_val = libm::fabsf(kv_temp[0]);
+        let mut max_val = crate::math::abs(kv_temp[0]);
         for &v in kv_temp.iter().skip(1) {
-            let a = libm::fabsf(v);
+            let a = crate::math::abs(v);
             if a > max_val { max_val = a; }
         }
 

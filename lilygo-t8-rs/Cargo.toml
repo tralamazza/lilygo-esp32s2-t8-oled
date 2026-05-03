@@ -22,6 +22,4 @@ display-interface-spi = "0.5"
 embedded-graphics = "0.8"
 embedded-hal-bus = "0.3"
 
-libm = "0.2"
-
 mlx90640 = { path = "../mlx90640" }

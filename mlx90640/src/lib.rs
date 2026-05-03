@@ -4,6 +4,7 @@ mod bad_pixels;
 mod calculations;
 mod calibration;
 mod driver;
+mod math;
 mod types;
 
 pub use driver::Mlx90640;

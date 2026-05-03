@@ -3,7 +3,8 @@
 `no_std` driver for the Melexis MLX90640 32×24 far-infrared thermal camera.
 
 Ported from the [official Melexis C library](https://github.com/melexis/mlx90640-library).
-Uses `embedded-hal` 1.0 I2C and `libm` for `no_std` float math.
+Uses `embedded-hal` 1.0 I2C. Float math resolves through `compiler-builtins` by default;
+enable the `libm` feature if your target lacks built-in `sqrtf`/`powf`/`fabsf`.
 
 ## Features
 
@@ -95,3 +96,13 @@ pub enum FrameRate {
     SixtyFour = 7, // 64 Hz
 }
 ```
+
+## Cargo features
+
+| Feature | Default | Description |
+|---------|---------|-------------|
+| `libm`  | no      | Use `libm` for `sqrtf`/`powf`/`fabsf` |
+
+Default path (no features) links to the target's `compiler-builtins` via `extern "C"`.
+On FPU targets this maps to hardware instructions; on soft-float targets `compiler-builtins`
+provides software implementations. Enable `libm` only if your target lacks these builtins.

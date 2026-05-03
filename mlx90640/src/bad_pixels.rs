@@ -1,4 +1,5 @@
 use crate::calibration::CalibrationParams;
+use crate::math;
 
 fn get_median(values: &mut [f32; 4], n: usize) -> f32 {
     for i in 0..n - 1 {
@@ -88,7 +89,7 @@ pub(crate) fn correct_bad_pixels(
             {
                 ap[0] = to[pix as usize + 1] - to[pix as usize + 2];
                 ap[1] = to[pix as usize - 1] - to[pix as usize - 2];
-                if libm::fabsf(ap[0]) > libm::fabsf(ap[1]) {
+                if math::abs(ap[0]) > math::abs(ap[1]) {
                     to[pix as usize] = to[pix as usize - 1] + ap[1];
                 } else {
                     to[pix as usize] = to[pix as usize + 1] + ap[0];
