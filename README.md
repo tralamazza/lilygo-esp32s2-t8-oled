@@ -8,17 +8,7 @@ Rust firmware for the [LilyGO T8 ESP32-S2](https://github.com/Xinyuan-LilyGO/Lil
 lilygo_rs/
 ├── Cargo.toml            # workspace root
 ├── mlx90640/             # no_std MLX90640 IR camera driver
-│   └── src/
-│       ├── driver.rs     # Mlx90640<I2C> public API
-│       ├── calibration.rs # EEPROM parsing + bad pixel detection
-│       ├── calculations.rs # MLX90640_CalculateTo port
-│       ├── bad_pixels.rs # MLX90640_BadPixelsCorrection port
-│       └── types.rs      # Error, FrameRate
 └── lilygo-t8-rs/         # target firmware (ESP32-S2)
-    └── src/
-        ├── bin/main.rs   # entry point, HW init
-        ├── apps/         # menu, thermal camera app
-        └── hw/           # button, backlight, delay
 ```
 
 ## mlx90640 crate
@@ -40,7 +30,6 @@ camera.generate_image(&mut temps)?;
 - **embedded-hal 1.0** I2C trait (`I2c`)
 - **Bad pixel detection**: scans EEPROM for broken pixels (`0x0000`) and outlier flags
 - **Bad pixel correction**: diagonal median (chess mode) or gradient-aware horizontal interpolation (interleave mode)
-- Math via `libm` (optional, default enabled)
 
 ## Build
 
