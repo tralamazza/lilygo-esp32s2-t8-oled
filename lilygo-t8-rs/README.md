@@ -2,6 +2,8 @@
 
 Rust firmware for the LilyGO T8 ESP32-S2 (aka T-Display S2) with ST7789 display and MLX90640 thermal camera support.
 
+<img width="320" height="341" alt="thermal" src="https://github.com/user-attachments/assets/3df30444-f379-4385-b1b4-dedb7bc8f9ad" />
+
 ## Hardware
 
 - **Board**: LilyGO T8 ESP32-S2 (135×240 ST7789 SPI display, 4MB flash, 8MB PSRAM)
