@@ -13,7 +13,7 @@ pub struct Mlx90640<I2C> {
     params: CalibrationParams,
     ambient_temp: f32,
     emissivity: f32,
-    tr: f32,
+    reflected_temp: f32,
 }
 
 impl<I2C: I2c> Mlx90640<I2C> {
@@ -27,7 +27,7 @@ impl<I2C: I2c> Mlx90640<I2C> {
             params,
             ambient_temp: 25.0,
             emissivity: 0.95,
-            tr: 25.0,
+            reflected_temp: 25.0,
         })
     }
 
@@ -35,12 +35,24 @@ impl<I2C: I2c> Mlx90640<I2C> {
         calibration::set_frame_rate(&mut self.i2c, crate::ADDRESS, u16::from(rate))
     }
 
+    /// Surface emissivity (default 0.95). Typical values:
+    /// skin/water 0.96–0.98, wood/fabric/paint 0.90–0.95,
+    /// concrete 0.90, glass 0.90, rusted steel 0.75,
+    /// bare polished metal 0.05–0.20.
+    ///
+    /// Lower emissivity amplifies measurement noise (signal is divided by ε).
+    /// For bare metals, stick matte tape (ε≈0.95) on the surface instead.
     pub fn set_emissivity(&mut self, e: f32) {
         self.emissivity = e;
     }
 
-    pub fn set_tr(&mut self, tr: f32) {
-        self.tr = tr;
+    /// Reflected temperature in °C (default 25.0).
+    /// Temperature of surroundings whose IR reflects off the target.
+    ///
+    /// Matters most for low-emissivity targets (term is weighted by 1−ε).
+    /// Indoor: 20–25°C. Outdoor clear sky: −20–0°C. Near hot equipment: 30–50°C.
+    pub fn set_reflected_temperature(&mut self, t: f32) {
+        self.reflected_temp = t;
     }
 
     pub fn ambient_temperature(&self) -> f32 {
@@ -79,7 +91,7 @@ impl<I2C: I2c> Mlx90640<I2C> {
 
         calibration::validate_frame_data(&frame_data, frame_data[833])?;
 
-        let ta = calculations::calculate_to(&frame_data, &self.params, self.emissivity, self.tr, dest);
+        let ta = calculations::calculate_to(&frame_data, &self.params, self.emissivity, self.reflected_temp, dest);
         self.ambient_temp = ta;
 
         let mode = (ctrl >> 12) & 0x01;

@@ -23,7 +23,7 @@ use mlx90640::{FrameRate, Mlx90640};
 let mut cam = Mlx90640::new(i2c).unwrap();
 cam.set_frame_rate(FrameRate::Eight).unwrap();
 cam.set_emissivity(0.95);
-cam.set_tr(25.0);
+cam.set_reflected_temperature(25.0);
 
 let mut temps = [0.0f32; 768];
 cam.generate_image(&mut temps).unwrap();
@@ -53,7 +53,7 @@ impl<I2C: embedded_hal::i2c::I2c> Mlx90640<I2C> {
     pub fn set_emissivity(&mut self, e: f32);
 
     /// Sets reflected temperature in °C (default 25.0).
-    pub fn set_tr(&mut self, tr: f32);
+    pub fn set_reflected_temperature(&mut self, t: f32);
 
     /// Polls for new frame (with timeout), reads pixel RAM, calculates temperatures,
     /// corrects bad pixels. Writes result into `dest` (768 f32 values).
