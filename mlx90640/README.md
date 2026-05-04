@@ -4,7 +4,7 @@
 
 Ported from the [official Melexis C library](https://github.com/melexis/mlx90640-library).
 Uses `embedded-hal` 1.0 I2C. Float math resolves through `compiler-builtins` by default;
-enable the `libm` feature if your target lacks built-in `sqrtf`/`powf`/`fabsf`.
+enable the `libm` feature if your target lacks built-in `sqrtf`/`fabsf`.
 
 ## Features
 
@@ -99,10 +99,14 @@ pub enum FrameRate {
 
 ## Cargo features
 
-| Feature | Default | Description |
-|---------|---------|-------------|
-| `libm`  | no      | Use `libm` for `sqrtf`/`powf`/`fabsf` |
+| Feature      | Default | Description |
+|--------------|---------|-------------|
+| `libm`       | no      | Use `libm` for `sqrtf`/`fabsf` |
+| `precompute` | no      | ~2.3 KB lookup tables for per-pixel patterns (faster, costs RAM) |
 
 Default path (no features) links to the target's `compiler-builtins` via `extern "C"`.
 On FPU targets this maps to hardware instructions; on soft-float targets `compiler-builtins`
 provides software implementations. Enable `libm` only if your target lacks these builtins.
+
+Exponentiation (`2ⁿ`) uses a fast IEEE 754 bit-manipulation path (`pow2f`) instead of `powf`,
+avoiding a foreign function call per operation.

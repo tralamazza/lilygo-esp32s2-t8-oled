@@ -5,6 +5,8 @@ mod calculations;
 mod calibration;
 mod driver;
 mod math;
+#[cfg(feature = "precompute")]
+mod patterns;
 mod types;
 
 pub use driver::Mlx90640;

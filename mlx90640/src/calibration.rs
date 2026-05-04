@@ -145,7 +145,7 @@ pub(crate) fn validate_aux_data<I2C: I2c>(aux_data: &[u16]) -> Result<(), Error<
 }
 
 fn pow2(exp: i32) -> f32 {
-    crate::math::pow(2.0, exp as f32)
+    crate::math::pow2f(exp)
 }
 
 fn sign_extend(value: i32, bits: u32) -> i32 {

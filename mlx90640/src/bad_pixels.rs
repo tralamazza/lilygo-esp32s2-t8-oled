@@ -1,13 +1,23 @@
 use crate::calibration::CalibrationParams;
 use crate::math;
 
-fn get_median(values: &mut [f32], n: usize) -> f32 {
-    values[..n].sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal));
-    if n.is_multiple_of(2) {
-        (values[n / 2] + values[n / 2 - 1]) / 2.0
-    } else {
-        values[n / 2]
+fn get_median(values: &mut [f32; 4]) -> f32 {
+    if values[0] > values[1] {
+        values.swap(0, 1);
     }
+    if values[2] > values[3] {
+        values.swap(2, 3);
+    }
+    if values[0] > values[2] {
+        values.swap(0, 2);
+    }
+    if values[1] > values[3] {
+        values.swap(1, 3);
+    }
+    if values[1] > values[2] {
+        values.swap(1, 2);
+    }
+    (values[1] + values[2]) * 0.5
 }
 
 fn is_pixel_bad(pixel: u16, params: &CalibrationParams) -> bool {
@@ -68,7 +78,7 @@ pub(crate) fn correct_bad_pixels(
                 ap[1] = to[pix as usize - 31];
                 ap[2] = to[pix as usize + 31];
                 ap[3] = to[pix as usize + 33];
-                to[pix as usize] = get_median(&mut ap, 4);
+                to[pix as usize] = get_median(&mut ap);
             }
         } else {
             // Interleave mode: gradient-aware horizontal interpolation

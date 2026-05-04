@@ -1,17 +1,38 @@
 use crate::calibration::{CalibrationParams, SCALE_ALPHA};
 use crate::math;
 
+#[cfg(feature = "precompute")]
+#[inline(always)]
+fn get_patterns(pixel: usize, _pixel_number: u16) -> (i32, i32, i32) {
+    (
+        crate::patterns::IL_PATTERN[pixel] as i32,
+        crate::patterns::CHESS_PATTERN[pixel] as i32,
+        crate::patterns::CONVERSION_PATTERN[pixel] as i32,
+    )
+}
+
+#[cfg(not(feature = "precompute"))]
+#[inline(always)]
+fn get_patterns(_pixel: usize, pixel_number: u16) -> (i32, i32, i32) {
+    let pix_i32 = pixel_number as i32;
+    let il_pattern = pix_i32 / 32 - (pix_i32 / 64) * 2;
+    let chess_pattern = il_pattern ^ (pix_i32 - (pix_i32 / 2) * 2);
+    let conversion_pattern = ((pix_i32 + 2) / 4 - (pix_i32 + 3) / 4 + (pix_i32 + 1) / 4 - pix_i32 / 4)
+        * (1 - 2 * il_pattern);
+    (il_pattern, chess_pattern, conversion_pattern)
+}
+
 pub(crate) fn get_vdd(frame_data: &[u16; 834], params: &CalibrationParams) -> f32 {
     let resolution_ram = (frame_data[832] >> 10) & 0x03;
-    let resolution_correction = math::pow(2.0, params.resolution_ee as f32) / math::pow(2.0, resolution_ram as f32);
+    let resolution_correction = math::pow2f(params.resolution_ee as i32) / math::pow2f(resolution_ram as i32);
     (resolution_correction * frame_data[810] as i16 as f32 - params.vdd25 as f32) / params.kvdd as f32 + 3.3
 }
 
 pub(crate) fn get_ta(frame_data: &[u16; 834], params: &CalibrationParams) -> f32 {
     let vdd = get_vdd(frame_data, params);
     let ptat = frame_data[800] as i16 as f32;
-    let ptat_art = (ptat / (ptat * params.alpha_ptat + frame_data[768] as i16 as f32)) * math::pow(2.0, 18.0);
-    
+    let ptat_art = (ptat / (ptat * params.alpha_ptat + frame_data[768] as i16 as f32)) * math::pow2f(18);
+
     (ptat_art / (1.0 + params.kvptat * (vdd - 3.3)) - params.vptat25 as f32) / params.ktptat + 25.0
 }
 
@@ -34,9 +55,9 @@ pub(crate) fn calculate_to(
     tr4 = tr4 * tr4;
     let ta_tr = tr4 - (tr4 - ta4) / emissivity;
 
-    let kta_scale = math::pow(2.0, params.kta_scale as f32);
-    let kv_scale = math::pow(2.0, params.kv_scale as f32);
-    let alpha_scale = math::pow(2.0, params.alpha_scale as f32);
+    let inv_kta_scale = 1.0 / math::pow2f(params.kta_scale as i32);
+    let inv_kv_scale = 1.0 / math::pow2f(params.kv_scale as i32);
+    let alpha_scale = math::pow2f(params.alpha_scale as i32);
 
     let mut alpha_corr_r = [1.0f32; 4];
     alpha_corr_r[0] = 1.0 / (1.0 + params.ks_to[0] * 40.0);
@@ -47,41 +68,38 @@ pub(crate) fn calculate_to(
 
     let mode = (frame_data[832] & 0x1000) >> 5;
 
+    let ta_delta = ta - 25.0;
+    let vdd_delta = vdd - 3.3;
+    let cp_corr = (1.0 + params.cp_kta * ta_delta) * (1.0 + params.cp_kv * vdd_delta);
+
     let mut ir_data_cp = [0.0f32; 2];
     ir_data_cp[0] = frame_data[776] as i16 as f32 * gain;
     ir_data_cp[1] = frame_data[808] as i16 as f32 * gain;
 
-    ir_data_cp[0] -= params.cp_offset[0] as f32
-            * (1.0 + params.cp_kta * (ta - 25.0))
-            * (1.0 + params.cp_kv * (vdd - 3.3));
+    ir_data_cp[0] -= params.cp_offset[0] as f32 * cp_corr;
 
     if mode == params.calibration_mode_ee as u16 {
-        ir_data_cp[1] -= params.cp_offset[1] as f32
-                * (1.0 + params.cp_kta * (ta - 25.0))
-                * (1.0 + params.cp_kv * (vdd - 3.3));
+        ir_data_cp[1] -= params.cp_offset[1] as f32 * cp_corr;
     } else {
-        ir_data_cp[1] -= (params.cp_offset[1] as f32 + params.il_chess_c[0])
-                * (1.0 + params.cp_kta * (ta - 25.0))
-                * (1.0 + params.cp_kv * (vdd - 3.3));
+        ir_data_cp[1] -= (params.cp_offset[1] as f32 + params.il_chess_c[0]) * cp_corr;
     }
+
+    let inv_emissivity = 1.0 / emissivity;
+    let alpha_scale_scaled = SCALE_ALPHA * alpha_scale;
+    let one_minus_ks_to1_273 = 1.0 - params.ks_to[1] * 273.15;
 
     for pixel_number in 0..768u16 {
         let pixel = pixel_number as usize;
-        let pix_i32 = pixel_number as i32;
-
-        let il_pattern = pix_i32 / 32 - (pix_i32 / 64) * 2;
-        let chess_pattern = il_pattern ^ (pix_i32 - (pix_i32 / 2) * 2);
-        let conversion_pattern = ((pix_i32 + 2) / 4 - (pix_i32 + 3) / 4 + (pix_i32 + 1) / 4 - pix_i32 / 4)
-            * (1 - 2 * il_pattern);
+        let (il_pattern, chess_pattern, conversion_pattern) = get_patterns(pixel, pixel_number);
 
         let pattern = if mode == 0 { il_pattern } else { chess_pattern };
 
         if pattern as u16 == subpage {
             let mut ir_data = frame_data[pixel] as i16 as f32 * gain;
 
-            let kta = params.kta[pixel] as f32 / kta_scale;
-            let kv = params.kv[pixel] as f32 / kv_scale;
-            ir_data -= params.offset[pixel] as f32 * (1.0 + kta * (ta - 25.0)) * (1.0 + kv * (vdd - 3.3));
+            let kta = params.kta[pixel] as f32 * inv_kta_scale;
+            let kv = params.kv[pixel] as f32 * inv_kv_scale;
+            ir_data -= params.offset[pixel] as f32 * (1.0 + kta * ta_delta) * (1.0 + kv * vdd_delta);
 
             if mode != params.calibration_mode_ee as u16 {
                 ir_data = ir_data
@@ -90,17 +108,16 @@ pub(crate) fn calculate_to(
             }
 
             ir_data -= params.tgc * ir_data_cp[subpage as usize];
-            ir_data /= emissivity;
+            ir_data *= inv_emissivity;
 
-            let mut alpha_compensated =
-                SCALE_ALPHA * alpha_scale / params.alpha[pixel] as f32;
-            alpha_compensated *= 1.0 + params.ks_ta * (ta - 25.0);
+            let mut alpha_compensated = alpha_scale_scaled / params.alpha[pixel] as f32;
+            alpha_compensated *= 1.0 + params.ks_ta * ta_delta;
 
             let ac3 = alpha_compensated * alpha_compensated * alpha_compensated;
             let sx = math::sqrt(math::sqrt(ac3 * (ir_data + alpha_compensated * ta_tr))) * params.ks_to[1];
 
             let mut to = math::sqrt(math::sqrt(
-                ir_data / (alpha_compensated * (1.0 - params.ks_to[1] * 273.15) + sx) + ta_tr,
+                ir_data / (alpha_compensated * one_minus_ks_to1_273 + sx) + ta_tr,
             )) - 273.15;
 
             let range: usize = if to < params.ct[1] as f32 {
